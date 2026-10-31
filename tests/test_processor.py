@@ -22,6 +22,15 @@ class TestPassportPhotoProcessor(unittest.TestCase):
         self.assertEqual(image_bgr.shape, image_rgb.shape)
         self.assertEqual(len(image_bgr.shape), 3)
 
+    def test_deskew_face_on_sample(self):
+        """Should execute deskew_face on sample image without error."""
+        sample_path = os.path.join("examples", "sample_input.jpg")
+        image_bgr, image_rgb = ppp.load_image(sample_path)
+        landmarks = ppp.detect_face_landmarks(image_rgb)
+        deskewed_bgr, deskewed_lm = ppp.deskew_face(image_bgr, landmarks)
+        self.assertEqual(deskewed_bgr.shape, image_bgr.shape)
+        self.assertIsNotNone(deskewed_lm)
+
     def test_parse_args_defaults(self):
         """Should parse arguments with expected defaults."""
         args = ppp.parse_args(["input.jpg"])
