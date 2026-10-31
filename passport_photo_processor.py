@@ -11,19 +11,21 @@ DPI = 300
 MM_TO_INCH = 1 / 25.4
 
 # Official Australian standard dimensions (35mm width x 45mm height at 300 DPI)
-TARGET_WIDTH_PX = int(round(35 * MM_TO_INCH * DPI))   # 413 pixels
+TARGET_WIDTH_PX = int(round(35 * MM_TO_INCH * DPI))  # 413 pixels
 TARGET_HEIGHT_PX = int(round(45 * MM_TO_INCH * DPI))  # 531 pixels
 
 # Target chin-to-crown distance (34mm, center of official 32-36mm range)
-TARGET_CHIN_CROWN_PX = int(round(34 * MM_TO_INCH * DPI)) # 402 pixels
+TARGET_CHIN_CROWN_PX = int(round(34 * MM_TO_INCH * DPI))  # 402 pixels
 
 
 def load_image(input_path):
     """Load an image from disk, auto-orient according to EXIF tags, and return BGR and RGB arrays."""
     if not os.path.exists(input_path):
         hint = ""
-        if os.path.isabs(input_path) and (input_path.startswith("/home") or input_path.startswith("/Users")):
-            hint = " (Tip: If running inside Docker, mount your host path using `-v \"$HOME:$HOME\" -w \"$(pwd)\"`)"
+        if os.path.isabs(input_path) and (
+            input_path.startswith("/home") or input_path.startswith("/Users")
+        ):
+            hint = ' (Tip: If running inside Docker, mount your host path using `-v "$HOME:$HOME" -w "$(pwd)"`)'
         raise FileNotFoundError(f"Could not find input image at {input_path}{hint}")
     try:
         with Image.open(input_path) as pil_img:
@@ -46,11 +48,13 @@ def detect_face_landmarks(image_rgb):
         static_image_mode=True,
         max_num_faces=1,
         refine_landmarks=True,
-        min_detection_confidence=0.5
+        min_detection_confidence=0.5,
     ) as face_mesh:
         results = face_mesh.process(image_rgb)
         if not results.multi_face_landmarks:
-            raise ValueError("No face detected in the image. Please provide a clear front-facing photo.")
+            raise ValueError(
+                "No face detected in the image. Please provide a clear front-facing photo."
+            )
         return results.multi_face_landmarks[0].landmark
 
 
@@ -68,30 +72,40 @@ def validate_biometrics(image_bgr, landmarks, pad_info=None):
     # 2. Head Yaw (Turning left / right)
     # Nose tip: 4, Left eye: 468 (viewer's left), Right eye: 473 (viewer's right)
     nose = landmarks[4]
-    left_eye = landmarks[468]   # Viewer's left
+    left_eye = landmarks[468]  # Viewer's left
     right_eye = landmarks[473]  # Viewer's right
     dist_left_to_nose = abs(nose.x - left_eye.x)
     dist_nose_to_right = abs(right_eye.x - nose.x)
     if dist_left_to_nose > 1e-4 and dist_nose_to_right > 1e-4:
         ratio = dist_left_to_nose / dist_nose_to_right
         if ratio < 0.65 or ratio > 1.55:
-            warnings.append("Head appears turned or angled (yaw). Official specifications require a straight-on frontal view.")
+            warnings.append(
+                "Head appears turned or angled (yaw). Official specifications require a straight-on frontal view."
+            )
 
     # 3. Eye Aperture (Open eyes check)
     # Right eye: 386 (upper), 374 (lower), 362/263 (corners)
     # Left eye: 159 (upper), 145 (lower), 33/133 (corners)
-    left_ear = abs(landmarks[159].y - landmarks[145].y) / max(1e-4, abs(landmarks[133].x - landmarks[33].x))
-    right_ear = abs(landmarks[386].y - landmarks[374].y) / max(1e-4, abs(landmarks[263].x - landmarks[362].x))
+    left_ear = abs(landmarks[159].y - landmarks[145].y) / max(
+        1e-4, abs(landmarks[133].x - landmarks[33].x)
+    )
+    right_ear = abs(landmarks[386].y - landmarks[374].y) / max(
+        1e-4, abs(landmarks[263].x - landmarks[362].x)
+    )
     if left_ear < 0.15 or right_ear < 0.15:
-        warnings.append("Eyes may be closed or squinting. Official specifications require eyes to be fully open.")
+        warnings.append(
+            "Eyes may be closed or squinting. Official specifications require eyes to be fully open."
+        )
 
     # 4. Neutral Expression / Mouth Open Check
     # Upper lip: 13, Lower lip: 14, Chin: 152
     chin = landmarks[152]
     mouth_open = abs(landmarks[14].y - landmarks[13].y)
-    face_h = abs(chin.y - landmarks[10].y) # 10 is forehead top
+    face_h = abs(chin.y - landmarks[10].y)  # 10 is forehead top
     if face_h > 1e-4 and (mouth_open / face_h) > 0.08:
-        warnings.append("Mouth appears open or smiling. Official specifications require a neutral expression with mouth closed.")
+        warnings.append(
+            "Mouth appears open or smiling. Official specifications require a neutral expression with mouth closed."
+        )
 
     # 5. Padding Warning
     if pad_info and any(p > 0 for p in pad_info):
@@ -106,7 +120,7 @@ def deskew_face(image_bgr, landmarks):
     """Rotate image so the eyes lie on a horizontal plane."""
     h, w, _ = image_bgr.shape
     # MediaPipe FaceMesh iris centers: 468 is viewer's left, 473 is viewer's right
-    eye_left = landmarks[468]   # Viewer's left
+    eye_left = landmarks[468]  # Viewer's left
     eye_right = landmarks[473]  # Viewer's right
 
     lx, ly = eye_left.x * w, eye_left.y * h
@@ -127,16 +141,24 @@ def deskew_face(image_bgr, landmarks):
     eye_center = ((lx + rx) / 2.0, (ly + ry) / 2.0)
     rot_matrix = cv2.getRotationMatrix2D(eye_center, angle_deg, 1.0)
     rotated_bgr = cv2.warpAffine(
-        image_bgr, rot_matrix, (w, h),
+        image_bgr,
+        rot_matrix,
+        (w, h),
         flags=cv2.INTER_LANCZOS4,
-        borderMode=cv2.BORDER_REPLICATE
+        borderMode=cv2.BORDER_REPLICATE,
     )
     rotated_rgb = cv2.cvtColor(rotated_bgr, cv2.COLOR_BGR2RGB)
     new_landmarks = detect_face_landmarks(rotated_rgb)
     return rotated_bgr, new_landmarks
 
 
-def align_and_crop(image_bgr, face_landmarks, target_w=TARGET_WIDTH_PX, target_h=TARGET_HEIGHT_PX, target_cc=TARGET_CHIN_CROWN_PX):
+def align_and_crop(
+    image_bgr,
+    face_landmarks,
+    target_w=TARGET_WIDTH_PX,
+    target_h=TARGET_HEIGHT_PX,
+    target_cc=TARGET_CHIN_CROWN_PX,
+):
     """Scale and crop face to meet passport dimensions."""
     h, w, _ = image_bgr.shape
 
@@ -147,14 +169,15 @@ def align_and_crop(image_bgr, face_landmarks, target_w=TARGET_WIDTH_PX, target_h
     # Eye center landmarks (left eye 468, right eye 473)
     left_eye = face_landmarks[468]
     right_eye = face_landmarks[473]
-    eye_center_px = np.array([
-        (left_eye.x + right_eye.x) * w / 2.0,
-        (left_eye.y + right_eye.y) * h / 2.0
-    ])
+    eye_center_px = np.array(
+        [(left_eye.x + right_eye.x) * w / 2.0, (left_eye.y + right_eye.y) * h / 2.0]
+    )
 
     # Anatomical estimation: Chin-to-Eye distance ≈ Eye-to-Crown distance
     chin_to_eye_dist = np.linalg.norm(chin_px - eye_center_px)
-    vector_eye_to_chin = (chin_px - eye_center_px) / np.linalg.norm(chin_px - eye_center_px)
+    vector_eye_to_chin = (chin_px - eye_center_px) / np.linalg.norm(
+        chin_px - eye_center_px
+    )
     crown_px = eye_center_px - vector_eye_to_chin * (chin_to_eye_dist * 1.05)
 
     current_cc_dist = np.linalg.norm(chin_px - crown_px)
@@ -163,7 +186,9 @@ def align_and_crop(image_bgr, face_landmarks, target_w=TARGET_WIDTH_PX, target_h
     # Resize image based on scale
     scaled_w = int(w * scale)
     scaled_h = int(h * scale)
-    scaled_image = cv2.resize(image_bgr, (scaled_w, scaled_h), interpolation=cv2.INTER_LANCZOS4)
+    scaled_image = cv2.resize(
+        image_bgr, (scaled_w, scaled_h), interpolation=cv2.INTER_LANCZOS4
+    )
 
     eye_center_scaled = eye_center_px * scale
     crown_scaled = crown_px * scale
@@ -187,8 +212,13 @@ def align_and_crop(image_bgr, face_landmarks, target_w=TARGET_WIDTH_PX, target_h
     pad_bottom = max(0, crop_y2 - scaled_h)
 
     padded_image = cv2.copyMakeBorder(
-        scaled_image, pad_top, pad_bottom, pad_left, pad_right,
-        cv2.BORDER_CONSTANT, value=[255, 255, 255]
+        scaled_image,
+        pad_top,
+        pad_bottom,
+        pad_left,
+        pad_right,
+        cv2.BORDER_CONSTANT,
+        value=[255, 255, 255],
     )
 
     crop_x1 += pad_left
@@ -197,14 +227,18 @@ def align_and_crop(image_bgr, face_landmarks, target_w=TARGET_WIDTH_PX, target_h
     crop_y2 += pad_top
 
     passport_cropped = padded_image[crop_y1:crop_y2, crop_x1:crop_x2]
-    passport_cropped = cv2.resize(passport_cropped, (target_w, target_h), interpolation=cv2.INTER_AREA)
+    passport_cropped = cv2.resize(
+        passport_cropped, (target_w, target_h), interpolation=cv2.INTER_AREA
+    )
     return passport_cropped, (pad_top, pad_bottom, pad_left, pad_right)
 
 
-def generate_sheet(passport_bgr, dpi=DPI, target_w=TARGET_WIDTH_PX, target_h=TARGET_HEIGHT_PX):
+def generate_sheet(
+    passport_bgr, dpi=DPI, target_w=TARGET_WIDTH_PX, target_h=TARGET_HEIGHT_PX
+):
     """Tile passport photo into a 4x6 inch print sheet with scale bars and clear margins."""
-    sheet_w = int(4 * dpi) # 1200 px
-    sheet_h = int(6 * dpi) # 1800 px
+    sheet_w = int(4 * dpi)  # 1200 px
+    sheet_h = int(6 * dpi)  # 1800 px
     sheet = Image.new("RGB", (sheet_w, sheet_h), (255, 255, 255))
     draw = ImageDraw.Draw(sheet)
 
@@ -242,7 +276,7 @@ def generate_sheet(passport_bgr, dpi=DPI, target_w=TARGET_WIDTH_PX, target_h=TAR
             draw_corner_ticks(draw, x, y, target_w, target_h)
 
     # --- DRAW CALIBRATION SCALE BARS IN UNOBSTRUCTED MARGINS ---
-    bar_len_px = int(50 * MM_TO_INCH * dpi) # ~591 px for 50mm
+    bar_len_px = int(50 * MM_TO_INCH * dpi)  # ~591 px for 50mm
     bar_thickness = 4
 
     try:
@@ -270,7 +304,12 @@ def generate_sheet(passport_bgr, dpi=DPI, target_w=TARGET_WIDTH_PX, target_h=TAR
 
     mid_x = hx1 + (bar_len_px // 2)
     draw.line([(mid_x, hy1 - 4), (mid_x, hy1 + 4)], fill=(30, 30, 30), width=2)
-    draw.text((mid_x - (text_w // 2), hy1 - text_h_height - 3), text_str, fill=(30, 30, 30), font=font)
+    draw.text(
+        (mid_x - (text_w // 2), hy1 - text_h_height - 3),
+        text_str,
+        fill=(30, 30, 30),
+        font=font,
+    )
 
     # 2. Vertical Scale Bar (drawn cleanly in right margin outside all photos)
     vx1 = sheet_w - 60
@@ -284,7 +323,12 @@ def generate_sheet(passport_bgr, dpi=DPI, target_w=TARGET_WIDTH_PX, target_h=TAR
 
     mid_y = vy1 + (bar_len_px // 2)
     draw.line([(vx1 - 4, mid_y), (vx1 + 4, mid_y)], fill=(30, 30, 30), width=2)
-    draw.text((vx1 - (text_w // 2), vy1 - text_h_height - 6), text_str, fill=(30, 30, 30), font=font)
+    draw.text(
+        (vx1 - (text_w // 2), vy1 - text_h_height - 6),
+        text_str,
+        fill=(30, 30, 30),
+        font=font,
+    )
 
     return sheet
 
@@ -328,15 +372,13 @@ def verify_passport_photo(single_path, sheet_path=None):
     Verify compliance of passport photo and sheet against Australian specifications.
     Returns a dict containing check results and overall pass/fail boolean.
     """
-    results = {
-        "passed": True,
-        "single_checks": [],
-        "sheet_checks": []
-    }
+    results = {"passed": True, "single_checks": [], "sheet_checks": []}
 
     if not os.path.exists(single_path):
         results["passed"] = False
-        results["single_checks"].append(("File Existence", False, f"File not found: {single_path}"))
+        results["single_checks"].append(
+            ("File Existence", False, f"File not found: {single_path}")
+        )
         return results
 
     try:
@@ -345,25 +387,29 @@ def verify_passport_photo(single_path, sheet_path=None):
             dpi = img.info.get("dpi")
 
             # 1. Dimensions Check
-            dim_pass = (w == TARGET_WIDTH_PX and h == TARGET_HEIGHT_PX)
+            dim_pass = w == TARGET_WIDTH_PX and h == TARGET_HEIGHT_PX
             width_mm = w / DPI * 25.4
             height_mm = h / DPI * 25.4
-            results["single_checks"].append((
-                "Dimensions",
-                dim_pass,
-                f"{w}x{h} px ({width_mm:.1f}x{height_mm:.1f} mm) — Target: {TARGET_WIDTH_PX}x{TARGET_HEIGHT_PX} px (35x45 mm)"
-            ))
+            results["single_checks"].append(
+                (
+                    "Dimensions",
+                    dim_pass,
+                    f"{w}x{h} px ({width_mm:.1f}x{height_mm:.1f} mm) — Target: {TARGET_WIDTH_PX}x{TARGET_HEIGHT_PX} px (35x45 mm)",
+                )
+            )
             if not dim_pass:
                 results["passed"] = False
 
             # 2. Embedded DPI Metadata Check
-            dpi_pass = dpi is not None and int(round(dpi[0])) == DPI and int(round(dpi[1])) == DPI
+            dpi_pass = (
+                dpi is not None
+                and int(round(dpi[0])) == DPI
+                and int(round(dpi[1])) == DPI
+            )
             dpi_str = f"{dpi[0]:.0f}x{dpi[1]:.0f} DPI" if dpi else "Missing DPI"
-            results["single_checks"].append((
-                "Embedded DPI",
-                dpi_pass,
-                f"{dpi_str} — Target: {DPI} DPI"
-            ))
+            results["single_checks"].append(
+                ("Embedded DPI", dpi_pass, f"{dpi_str} — Target: {DPI} DPI")
+            )
             if not dpi_pass:
                 results["passed"] = False
 
@@ -379,39 +425,54 @@ def verify_passport_photo(single_path, sheet_path=None):
         chin_y = landmarks[152].y * h
 
         # Vertical Anatomy (Upright Orientation)
-        upright_pass = (forehead_y < min(eye_l_y, eye_r_y) < nose_y < mouth_y < chin_y)
-        results["single_checks"].append((
-            "Orientation (Upright)",
-            upright_pass,
-            "Forehead -> Eyes -> Nose -> Mouth -> Chin verified" if upright_pass else "Inverted or non-upright posture"
-        ))
+        upright_pass = forehead_y < min(eye_l_y, eye_r_y) < nose_y < mouth_y < chin_y
+        results["single_checks"].append(
+            (
+                "Orientation (Upright)",
+                upright_pass,
+                (
+                    "Forehead -> Eyes -> Nose -> Mouth -> Chin verified"
+                    if upright_pass
+                    else "Inverted or non-upright posture"
+                ),
+            )
+        )
         if not upright_pass:
             results["passed"] = False
 
         # Eye Horizontal Alignment
         eye_diff = abs(eye_l_y - eye_r_y)
         eye_pass = eye_diff <= 2.0
-        results["single_checks"].append((
-            "Eye Horizontal Level",
-            eye_pass,
-            f"Delta: {eye_diff:.2f} px — Target: <= 2.0 px"
-        ))
+        results["single_checks"].append(
+            (
+                "Eye Horizontal Level",
+                eye_pass,
+                f"Delta: {eye_diff:.2f} px — Target: <= 2.0 px",
+            )
+        )
         if not eye_pass:
             results["passed"] = False
 
         # Chin-to-Crown Distance (Official Australian Specification: 32 - 36mm)
         chin_px = np.array([landmarks[152].x * w, landmarks[152].y * h])
-        eye_mid_px = np.array([(landmarks[468].x + landmarks[473].x) * w / 2.0, (landmarks[468].y + landmarks[473].y) * h / 2.0])
+        eye_mid_px = np.array(
+            [
+                (landmarks[468].x + landmarks[473].x) * w / 2.0,
+                (landmarks[468].y + landmarks[473].y) * h / 2.0,
+            ]
+        )
         chin_to_eye = np.linalg.norm(chin_px - eye_mid_px)
         crown_px = eye_mid_px - np.array([0, chin_to_eye * 1.05])
         cc_dist_px = np.linalg.norm(chin_px - crown_px)
         cc_dist_mm = cc_dist_px / DPI * 25.4
-        cc_pass = (32.0 <= cc_dist_mm <= 36.0)
-        results["single_checks"].append((
-            "Chin-to-Crown Distance",
-            cc_pass,
-            f"{cc_dist_mm:.1f} mm — Official spec: 32.0 - 36.0 mm (Target: 34.0 mm)"
-        ))
+        cc_pass = 32.0 <= cc_dist_mm <= 36.0
+        results["single_checks"].append(
+            (
+                "Chin-to-Crown Distance",
+                cc_pass,
+                f"{cc_dist_mm:.1f} mm — Official spec: 32.0 - 36.0 mm (Target: 34.0 mm)",
+            )
+        )
         if not cc_pass:
             results["passed"] = False
 
@@ -425,22 +486,30 @@ def verify_passport_photo(single_path, sheet_path=None):
             with Image.open(sheet_path) as sheet_img:
                 sw, sh = sheet_img.size
                 sdpi = sheet_img.info.get("dpi")
-                sheet_dim_pass = (sw == 1200 and sh == 1800)
-                results["sheet_checks"].append((
-                    "Sheet Dimensions",
-                    sheet_dim_pass,
-                    f"{sw}x{sh} px — Target: 1200x1800 px (4x6 in @ 300 DPI)"
-                ))
+                sheet_dim_pass = sw == 1200 and sh == 1800
+                results["sheet_checks"].append(
+                    (
+                        "Sheet Dimensions",
+                        sheet_dim_pass,
+                        f"{sw}x{sh} px — Target: 1200x1800 px (4x6 in @ 300 DPI)",
+                    )
+                )
                 if not sheet_dim_pass:
                     results["passed"] = False
 
-                sheet_dpi_pass = sdpi is not None and int(round(sdpi[0])) == DPI and int(round(sdpi[1])) == DPI
+                sheet_dpi_pass = (
+                    sdpi is not None
+                    and int(round(sdpi[0])) == DPI
+                    and int(round(sdpi[1])) == DPI
+                )
                 sdpi_str = f"{sdpi[0]:.0f}x{sdpi[1]:.0f} DPI" if sdpi else "Missing DPI"
-                results["sheet_checks"].append((
-                    "Sheet Embedded DPI",
-                    sheet_dpi_pass,
-                    f"{sdpi_str} — Target: {DPI} DPI"
-                ))
+                results["sheet_checks"].append(
+                    (
+                        "Sheet Embedded DPI",
+                        sheet_dpi_pass,
+                        f"{sdpi_str} — Target: {DPI} DPI",
+                    )
+                )
                 if not sheet_dpi_pass:
                     results["passed"] = False
         except Exception as e:
@@ -466,7 +535,11 @@ def print_verification_report(results):
             sym = "[✓]" if passed else "[✗]"
             print(f"  {sym} {name:<26}: {detail}")
 
-    status_str = "PASSED (Compliant with Official Specs)" if results["passed"] else "FAILED (Non-compliant)"
+    status_str = (
+        "PASSED (Compliant with Official Specs)"
+        if results["passed"]
+        else "FAILED (Non-compliant)"
+    )
     print("-" * 60)
     print(f"OVERALL STATUS: {status_str}")
     print("=" * 60 + "\n")
@@ -477,49 +550,47 @@ def parse_args(args=None):
         description="Australian Passport Photo Generator — Crop, scale, align, and tile passport photos."
     )
     parser.add_argument(
-        "input",
-        nargs="?",
-        default=None,
-        help="Path to input photo (e.g. input.jpg)."
+        "input", nargs="?", default=None, help="Path to input photo (e.g. input.jpg)."
     )
     parser.add_argument(
         "output_single",
         nargs="?",
         default=None,
-        help="Optional path for single cropped photo output."
+        help="Optional path for single cropped photo output.",
     )
     parser.add_argument(
         "output_sheet",
         nargs="?",
         default=None,
-        help="Optional path for 4x6 print sheet output."
+        help="Optional path for 4x6 print sheet output.",
     )
     parser.add_argument(
         "--demo",
         action="store_true",
-        help="Run immediately using bundled sample photo (examples/sample_input.jpg)."
+        help="Run immediately using bundled sample photo (examples/sample_input.jpg).",
     )
     parser.add_argument(
-        "-o", "--output-dir",
+        "-o",
+        "--output-dir",
         default="output",
-        help="Output directory when specific file paths are omitted (default: output)."
+        help="Output directory when specific file paths are omitted (default: output).",
     )
     parser.add_argument(
         "--no-sheet",
         action="store_true",
-        help="Generate only the single passport photo, skipping the 4x6 sheet."
+        help="Generate only the single passport photo, skipping the 4x6 sheet.",
     )
     parser.add_argument(
         "--verify",
         nargs="*",
         default=None,
         metavar="PATH",
-        help="Run compliance verification on an existing photo: --verify [single_photo.png] [sheet_4x6.png]"
+        help="Run compliance verification on an existing photo: --verify [single_photo.png] [sheet_4x6.png]",
     )
     parser.add_argument(
         "--no-verify",
         action="store_true",
-        help="Skip automatic post-generation compliance verification."
+        help="Skip automatic post-generation compliance verification.",
     )
     return parser.parse_args(args)
 
@@ -558,7 +629,9 @@ def main():
         if os.path.exists("input.jpg"):
             input_file = "input.jpg"
         else:
-            print("Error: No input image specified. Provide an image path or use --demo.")
+            print(
+                "Error: No input image specified. Provide an image path or use --demo."
+            )
             print("Usage: python passport_photo_processor.py <input.jpg> [options]")
             print("       python passport_photo_processor.py --demo")
             sys.exit(1)
