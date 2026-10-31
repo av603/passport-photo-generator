@@ -21,7 +21,10 @@ TARGET_CHIN_CROWN_PX = int(round(34 * MM_TO_INCH * DPI)) # 402 pixels
 def load_image(input_path):
     """Load an image from disk, auto-orient according to EXIF tags, and return BGR and RGB arrays."""
     if not os.path.exists(input_path):
-        raise FileNotFoundError(f"Could not find input image at {input_path}")
+        hint = ""
+        if os.path.isabs(input_path) and (input_path.startswith("/home") or input_path.startswith("/Users")):
+            hint = " (Tip: If running inside Docker, mount your host path using `-v \"$HOME:$HOME\" -w \"$(pwd)\"`)"
+        raise FileNotFoundError(f"Could not find input image at {input_path}{hint}")
     try:
         with Image.open(input_path) as pil_img:
             pil_img = ImageOps.exif_transpose(pil_img)

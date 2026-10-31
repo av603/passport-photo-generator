@@ -70,16 +70,34 @@ Outputs will be saved to `output/passport_single.png` and `output/passport_sheet
 
 ### 3. Process Your Own Photo
 
+#### Option A: Photo is in your project directory
 Place your photo (e.g. `my_photo.jpg`) in the project directory and run:
 
 ```bash
 docker run --rm -v "$(pwd)":/app passport-photo-processor my_photo.jpg
 ```
 
-Or specify custom output paths:
+#### Option B: Photo is located anywhere on your computer (e.g. Downloads, Pictures)
+Because Docker containers run with isolated filesystems, mount `$HOME` so any host path works transparently:
 
 ```bash
-docker run --rm -v "$(pwd)":/app passport-photo-processor my_photo.jpg output/single.png output/sheet.png
+docker run --rm \
+  -v "$HOME:$HOME" \
+  -w "$(pwd)" \
+  passport-photo-processor /home/av603/Downloads/my_photo.jpg
+```
+
+#### Option C: Convenient Shell Alias
+Add this alias to your `~/.bashrc` or `~/.zshrc` to run the tool directly from anywhere on any photo:
+
+```bash
+alias passport-photo='docker run --rm -v "$HOME:$HOME" -w "$(pwd)" passport-photo-processor'
+```
+
+Then simply run:
+
+```bash
+passport-photo ~/Downloads/my_photo.jpg
 ```
 
 ---
