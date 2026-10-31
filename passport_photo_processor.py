@@ -145,13 +145,29 @@ def align_and_crop(image_bgr, face_landmarks, target_w=TARGET_WIDTH_PX, target_h
 
 
 def generate_sheet(passport_bgr, dpi=DPI, target_w=TARGET_WIDTH_PX, target_h=TARGET_HEIGHT_PX):
-    """Tile passport photo into a 4x6 inch print sheet with scale bars."""
+    """Tile passport photo into a 4x6 inch print sheet with scale bars and clear margins."""
     sheet_w = int(4 * dpi) # 1200 px
     sheet_h = int(6 * dpi) # 1800 px
     sheet = Image.new("RGB", (sheet_w, sheet_h), (255, 255, 255))
     draw = ImageDraw.Draw(sheet)
 
-    bar_len_px = int(50 * MM_TO_INCH * dpi)
+    # Paste photos with symmetrical margin centering first
+    passport_pil = Image.fromarray(cv2.cvtColor(passport_bgr, cv2.COLOR_BGR2RGB))
+    cols = 2
+    rows = 3
+    gap_x = (sheet_w - cols * target_w) // (cols + 1)
+    gap_y = (sheet_h - rows * target_h) // (rows + 1)
+    start_x = (sheet_w - (cols * target_w + (cols - 1) * gap_x)) // 2
+    start_y = (sheet_h - (rows * target_h + (rows - 1) * gap_y)) // 2
+
+    for r in range(rows):
+        for c in range(cols):
+            x = start_x + c * (target_w + gap_x)
+            y = start_y + r * (target_h + gap_y)
+            sheet.paste(passport_pil, (x, y))
+
+    # --- DRAW CALIBRATION SCALE BARS IN UNOBSTRUCTED MARGINS ---
+    bar_len_px = int(50 * MM_TO_INCH * dpi) # ~591 px for 50mm
     bar_thickness = 4
 
     try:
@@ -167,48 +183,33 @@ def generate_sheet(passport_bgr, dpi=DPI, target_w=TARGET_WIDTH_PX, target_h=TAR
     except AttributeError:
         text_w, text_h_height = font.getsize(text_str)
 
-    # 1. Horizontal Scale Bar
+    # 1. Horizontal Scale Bar (drawn cleanly in bottom margin below all photos)
     hx1 = (sheet_w - bar_len_px) // 2
-    hy1 = sheet_h - 45
+    hy1 = sheet_h - 22
     hx2 = hx1 + bar_len_px
     hy2 = hy1
 
-    draw.line([(hx1, hy1 - 8), (hx1, hy1 + 8)], fill=(30, 30, 30), width=3)
-    draw.line([(hx2, hy2 - 8), (hx2, hy2 + 8)], fill=(30, 30, 30), width=3)
+    draw.line([(hx1, hy1 - 6), (hx1, hy1 + 6)], fill=(30, 30, 30), width=3)
+    draw.line([(hx2, hy2 - 6), (hx2, hy2 + 6)], fill=(30, 30, 30), width=3)
     draw.line([(hx1, hy1), (hx2, hy2)], fill=(30, 30, 30), width=bar_thickness)
 
     mid_x = hx1 + (bar_len_px // 2)
-    draw.line([(mid_x, hy1 - 5), (mid_x, hy1 + 5)], fill=(30, 30, 30), width=2)
-    draw.text((mid_x - (text_w // 2), hy1 - text_h_height - 10), text_str, fill=(30, 30, 30), font=font)
+    draw.line([(mid_x, hy1 - 4), (mid_x, hy1 + 4)], fill=(30, 30, 30), width=2)
+    draw.text((mid_x - (text_w // 2), hy1 - text_h_height - 3), text_str, fill=(30, 30, 30), font=font)
 
-    # 2. Vertical Scale Bar
-    vx1 = sheet_w - 45
+    # 2. Vertical Scale Bar (drawn cleanly in right margin outside all photos)
+    vx1 = sheet_w - 60
     vy1 = (sheet_h - bar_len_px) // 2
     vx2 = vx1
     vy2 = vy1 + bar_len_px
 
-    draw.line([(vx1 - 8, vy1), (vx1 + 8, vy1)], fill=(30, 30, 30), width=3)
-    draw.line([(vx2 - 8, vy2), (vx2 + 8, vy2)], fill=(30, 30, 30), width=3)
+    draw.line([(vx1 - 6, vy1), (vx1 + 6, vy1)], fill=(30, 30, 30), width=3)
+    draw.line([(vx2 - 6, vy2), (vx2 + 6, vy2)], fill=(30, 30, 30), width=3)
     draw.line([(vx1, vy1), (vx2, vy2)], fill=(30, 30, 30), width=bar_thickness)
 
     mid_y = vy1 + (bar_len_px // 2)
-    draw.line([(vx1 - 5, mid_y), (vx1 + 5, mid_y)], fill=(30, 30, 30), width=2)
-    draw.text((vx1 - (text_w // 2), vy1 - text_h_height - 10), text_str, fill=(30, 30, 30), font=font)
-
-    # Paste photos with symmetrical margin centering
-    passport_pil = Image.fromarray(cv2.cvtColor(passport_bgr, cv2.COLOR_BGR2RGB))
-    cols = 2
-    rows = 3
-    gap_x = (sheet_w - cols * target_w) // (cols + 1)
-    gap_y = (sheet_h - rows * target_h) // (rows + 1)
-    start_x = (sheet_w - (cols * target_w + (cols - 1) * gap_x)) // 2
-    start_y = (sheet_h - (rows * target_h + (rows - 1) * gap_y)) // 2
-
-    for r in range(rows):
-        for c in range(cols):
-            x = start_x + c * (target_w + gap_x)
-            y = start_y + r * (target_h + gap_y)
-            sheet.paste(passport_pil, (x, y))
+    draw.line([(vx1 - 4, mid_y), (vx1 + 4, mid_y)], fill=(30, 30, 30), width=2)
+    draw.text((vx1 - (text_w // 2), vy1 - text_h_height - 6), text_str, fill=(30, 30, 30), font=font)
 
     return sheet
 
