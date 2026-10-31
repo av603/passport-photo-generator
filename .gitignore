@@ -20,6 +20,10 @@ htmlcov/
 *.png
 output/
 
+# Allow GitHub actions workflow
+!.github/
+!.github/**
+
 # Preserve bundled sample assets in examples/
 !examples/*.jpg
 !examples/*.jpeg
