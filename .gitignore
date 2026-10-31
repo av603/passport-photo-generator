@@ -1,0 +1,26 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# User-supplied photos and generated outputs
+*.jpg
+*.jpeg
+*.png
+output/
+
+# Preserve bundled sample assets in examples/
+!examples/*.jpg
+!examples/*.jpeg
+!examples/*.png
