@@ -51,6 +51,34 @@ def detect_face_landmarks(image_rgb):
         return results.multi_face_landmarks[0].landmark
 
 
+def deskew_face(image_bgr, landmarks):
+    """Rotate image so the eyes lie on a horizontal plane."""
+    h, w, _ = image_bgr.shape
+    left_eye = landmarks[468]   # Subject's left eye (viewer's right)
+    right_eye = landmarks[473]  # Subject's right eye (viewer's left)
+
+    lx, ly = left_eye.x * w, left_eye.y * h
+    rx, ry = right_eye.x * w, right_eye.y * h
+
+    dx = lx - rx
+    dy = ly - ry
+    angle_deg = float(np.degrees(np.arctan2(dy, dx)))
+
+    if abs(angle_deg) < 0.2:
+        return image_bgr, landmarks
+
+    eye_center = ((lx + rx) / 2.0, (ly + ry) / 2.0)
+    rot_matrix = cv2.getRotationMatrix2D(eye_center, angle_deg, 1.0)
+    rotated_bgr = cv2.warpAffine(
+        image_bgr, rot_matrix, (w, h),
+        flags=cv2.INTER_LANCZOS4,
+        borderMode=cv2.BORDER_REPLICATE
+    )
+    rotated_rgb = cv2.cvtColor(rotated_bgr, cv2.COLOR_BGR2RGB)
+    new_landmarks = detect_face_landmarks(rotated_rgb)
+    return rotated_bgr, new_landmarks
+
+
 def align_and_crop(image_bgr, face_landmarks, target_w=TARGET_WIDTH_PX, target_h=TARGET_HEIGHT_PX, target_cc=TARGET_CHIN_CROWN_PX):
     """Scale and crop face to meet passport dimensions."""
     h, w, _ = image_bgr.shape
@@ -187,7 +215,8 @@ def process_passport_photo(input_path, output_single_path, output_sheet_path=Non
     """Main processing function to load, crop, and save passport photo and optional sheet."""
     image_bgr, image_rgb = load_image(input_path)
     landmarks = detect_face_landmarks(image_rgb)
-    cropped_bgr = align_and_crop(image_bgr, landmarks)
+    deskewed_bgr, deskewed_landmarks = deskew_face(image_bgr, landmarks)
+    cropped_bgr = align_and_crop(deskewed_bgr, deskewed_landmarks)
 
     if output_single_path:
         out_dir = os.path.dirname(output_single_path)
