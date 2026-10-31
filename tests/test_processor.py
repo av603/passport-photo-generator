@@ -31,6 +31,14 @@ class TestPassportPhotoProcessor(unittest.TestCase):
         self.assertEqual(deskewed_bgr.shape, image_bgr.shape)
         self.assertIsNotNone(deskewed_lm)
 
+    def test_validate_biometrics_on_sample(self):
+        """Should validate sample image and return advisory list."""
+        sample_path = os.path.join("examples", "sample_input.jpg")
+        image_bgr, image_rgb = ppp.load_image(sample_path)
+        landmarks = ppp.detect_face_landmarks(image_rgb)
+        warnings = ppp.validate_biometrics(image_bgr, landmarks)
+        self.assertIsInstance(warnings, list)
+
     def test_parse_args_defaults(self):
         """Should parse arguments with expected defaults."""
         args = ppp.parse_args(["input.jpg"])

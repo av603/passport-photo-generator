@@ -51,6 +51,54 @@ def detect_face_landmarks(image_rgb):
         return results.multi_face_landmarks[0].landmark
 
 
+def validate_biometrics(image_bgr, landmarks, pad_info=None):
+    """Validate facial posture, expression, and resolution against passport standards."""
+    warnings = []
+    h, w, _ = image_bgr.shape
+
+    # 1. Resolution Check
+    if w < TARGET_WIDTH_PX or h < TARGET_HEIGHT_PX:
+        warnings.append(
+            f"Input resolution ({w}x{h}) is below 300 DPI passport size ({TARGET_WIDTH_PX}x{TARGET_HEIGHT_PX}). Output may appear pixelated."
+        )
+
+    # 2. Head Yaw (Turning left / right)
+    # Nose tip: 4, Left eye: 468, Right eye: 473
+    nose = landmarks[4]
+    left_eye = landmarks[468]   # Viewer's right
+    right_eye = landmarks[473]  # Viewer's left
+    dist_right_to_nose = abs(nose.x - right_eye.x)
+    dist_nose_to_left = abs(left_eye.x - nose.x)
+    if dist_right_to_nose > 1e-4 and dist_nose_to_left > 1e-4:
+        ratio = dist_right_to_nose / dist_nose_to_left
+        if ratio < 0.65 or ratio > 1.55:
+            warnings.append("Head appears turned or angled (yaw). Official specifications require a straight-on frontal view.")
+
+    # 3. Eye Aperture (Open eyes check)
+    # Right eye: 386 (upper), 374 (lower), 362/263 (corners)
+    # Left eye: 159 (upper), 145 (lower), 33/133 (corners)
+    left_ear = abs(landmarks[159].y - landmarks[145].y) / max(1e-4, abs(landmarks[133].x - landmarks[33].x))
+    right_ear = abs(landmarks[386].y - landmarks[374].y) / max(1e-4, abs(landmarks[263].x - landmarks[362].x))
+    if left_ear < 0.15 or right_ear < 0.15:
+        warnings.append("Eyes may be closed or squinting. Official specifications require eyes to be fully open.")
+
+    # 4. Neutral Expression / Mouth Open Check
+    # Upper lip: 13, Lower lip: 14, Chin: 152
+    chin = landmarks[152]
+    mouth_open = abs(landmarks[14].y - landmarks[13].y)
+    face_h = abs(chin.y - landmarks[10].y) # 10 is forehead top
+    if face_h > 1e-4 and (mouth_open / face_h) > 0.08:
+        warnings.append("Mouth appears open or smiling. Official specifications require a neutral expression with mouth closed.")
+
+    # 5. Padding Warning
+    if pad_info and any(p > 0 for p in pad_info):
+        warnings.append(
+            "White border padding was added around the subject. The camera was framed too closely to the subject's head/shoulders."
+        )
+
+    return warnings
+
+
 def deskew_face(image_bgr, landmarks):
     """Rotate image so the eyes lie on a horizontal plane."""
     h, w, _ = image_bgr.shape
@@ -141,7 +189,7 @@ def align_and_crop(image_bgr, face_landmarks, target_w=TARGET_WIDTH_PX, target_h
 
     passport_cropped = padded_image[crop_y1:crop_y2, crop_x1:crop_x2]
     passport_cropped = cv2.resize(passport_cropped, (target_w, target_h), interpolation=cv2.INTER_AREA)
-    return passport_cropped
+    return passport_cropped, (pad_top, pad_bottom, pad_left, pad_right)
 
 
 def generate_sheet(passport_bgr, dpi=DPI, target_w=TARGET_WIDTH_PX, target_h=TARGET_HEIGHT_PX):
@@ -237,7 +285,15 @@ def process_passport_photo(input_path, output_single_path, output_sheet_path=Non
     image_bgr, image_rgb = load_image(input_path)
     landmarks = detect_face_landmarks(image_rgb)
     deskewed_bgr, deskewed_landmarks = deskew_face(image_bgr, landmarks)
-    cropped_bgr = align_and_crop(deskewed_bgr, deskewed_landmarks)
+    cropped_bgr, pad_info = align_and_crop(deskewed_bgr, deskewed_landmarks)
+
+    # Validate biometrics and issue advisories
+    advisories = validate_biometrics(image_bgr, deskewed_landmarks, pad_info)
+    if advisories:
+        print("\n--- Biometric Compliance Advisory ---")
+        for adv in advisories:
+            print(f" [!] {adv}")
+        print("--------------------------------------\n")
 
     if output_single_path:
         out_dir = os.path.dirname(output_single_path)
