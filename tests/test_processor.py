@@ -33,7 +33,9 @@ class TestPassportPhotoProcessor(unittest.TestCase):
         # Forehead (landmark 10) must be above chin (landmark 152) in image coordinates (y increases downward)
         forehead_y = deskewed_lm[10].y
         chin_y = deskewed_lm[152].y
-        self.assertLess(forehead_y, chin_y, "Face must remain upright (forehead above chin)")
+        self.assertLess(
+            forehead_y, chin_y, "Face must remain upright (forehead above chin)"
+        )
 
     def test_validate_biometrics_on_sample(self):
         """Should validate sample image and return advisory list."""
@@ -72,7 +74,10 @@ class TestPassportPhotoProcessor(unittest.TestCase):
     def test_single_photo_dpi_saved(self):
         """Single photo output should include 300 DPI metadata."""
         import tempfile
-        dummy_passport = np.full((ppp.TARGET_HEIGHT_PX, ppp.TARGET_WIDTH_PX, 3), 200, dtype=np.uint8)
+
+        dummy_passport = np.full(
+            (ppp.TARGET_HEIGHT_PX, ppp.TARGET_WIDTH_PX, 3), 200, dtype=np.uint8
+        )
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
             temp_path = tf.name
         try:
@@ -89,14 +94,20 @@ class TestPassportPhotoProcessor(unittest.TestCase):
 
     def test_generate_sheet_dimensions(self):
         """Sheet generator should produce 1200x1800 px sheet at 300 DPI with tick marks."""
-        dummy_passport = np.full((ppp.TARGET_HEIGHT_PX, ppp.TARGET_WIDTH_PX, 3), 200, dtype=np.uint8)
-        sheet = ppp.generate_sheet(dummy_passport, dpi=300, target_w=ppp.TARGET_WIDTH_PX, target_h=ppp.TARGET_HEIGHT_PX)
+        dummy_passport = np.full(
+            (ppp.TARGET_HEIGHT_PX, ppp.TARGET_WIDTH_PX, 3), 200, dtype=np.uint8
+        )
+        sheet = ppp.generate_sheet(
+            dummy_passport,
+            dpi=300,
+            target_w=ppp.TARGET_WIDTH_PX,
+            target_h=ppp.TARGET_HEIGHT_PX,
+        )
         self.assertIsInstance(sheet, Image.Image)
         self.assertEqual(sheet.size, (1200, 1800))
         # Ensure sheet contains drawing marks outside pure white background
         arr = np.array(sheet)
         self.assertTrue((arr != 255).any())
-
 
     def test_parse_args_verify(self):
         """Should parse --verify and --no-verify flags properly."""
@@ -114,6 +125,7 @@ class TestPassportPhotoProcessor(unittest.TestCase):
     def test_verify_passport_photo_invalid_dim(self):
         """Should fail verification on invalid dimensions."""
         import tempfile
+
         dummy = np.full((300, 300, 3), 200, dtype=np.uint8)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
             path = tf.name
