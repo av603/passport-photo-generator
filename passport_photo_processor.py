@@ -323,6 +323,155 @@ def process_passport_photo(input_path, output_single_path, output_sheet_path=Non
     return cropped_bgr
 
 
+def verify_passport_photo(single_path, sheet_path=None):
+    """
+    Verify compliance of passport photo and sheet against Australian specifications.
+    Returns a dict containing check results and overall pass/fail boolean.
+    """
+    results = {
+        "passed": True,
+        "single_checks": [],
+        "sheet_checks": []
+    }
+
+    if not os.path.exists(single_path):
+        results["passed"] = False
+        results["single_checks"].append(("File Existence", False, f"File not found: {single_path}"))
+        return results
+
+    try:
+        with Image.open(single_path) as img:
+            w, h = img.size
+            dpi = img.info.get("dpi")
+
+            # 1. Dimensions Check
+            dim_pass = (w == TARGET_WIDTH_PX and h == TARGET_HEIGHT_PX)
+            width_mm = w / DPI * 25.4
+            height_mm = h / DPI * 25.4
+            results["single_checks"].append((
+                "Dimensions",
+                dim_pass,
+                f"{w}x{h} px ({width_mm:.1f}x{height_mm:.1f} mm) — Target: {TARGET_WIDTH_PX}x{TARGET_HEIGHT_PX} px (35x45 mm)"
+            ))
+            if not dim_pass:
+                results["passed"] = False
+
+            # 2. Embedded DPI Metadata Check
+            dpi_pass = dpi is not None and int(round(dpi[0])) == DPI and int(round(dpi[1])) == DPI
+            dpi_str = f"{dpi[0]:.0f}x{dpi[1]:.0f} DPI" if dpi else "Missing DPI"
+            results["single_checks"].append((
+                "Embedded DPI",
+                dpi_pass,
+                f"{dpi_str} — Target: {DPI} DPI"
+            ))
+            if not dpi_pass:
+                results["passed"] = False
+
+        # 3. Biometric & Anatomy Checks via FaceMesh
+        bgr, rgb = load_image(single_path)
+        landmarks = detect_face_landmarks(rgb)
+
+        forehead_y = landmarks[10].y * h
+        eye_l_y = landmarks[468].y * h
+        eye_r_y = landmarks[473].y * h
+        nose_y = landmarks[4].y * h
+        mouth_y = landmarks[14].y * h
+        chin_y = landmarks[152].y * h
+
+        # Vertical Anatomy (Upright Orientation)
+        upright_pass = (forehead_y < min(eye_l_y, eye_r_y) < nose_y < mouth_y < chin_y)
+        results["single_checks"].append((
+            "Orientation (Upright)",
+            upright_pass,
+            "Forehead -> Eyes -> Nose -> Mouth -> Chin verified" if upright_pass else "Inverted or non-upright posture"
+        ))
+        if not upright_pass:
+            results["passed"] = False
+
+        # Eye Horizontal Alignment
+        eye_diff = abs(eye_l_y - eye_r_y)
+        eye_pass = eye_diff <= 2.0
+        results["single_checks"].append((
+            "Eye Horizontal Level",
+            eye_pass,
+            f"Delta: {eye_diff:.2f} px — Target: <= 2.0 px"
+        ))
+        if not eye_pass:
+            results["passed"] = False
+
+        # Chin-to-Crown Distance (Official Australian Specification: 32 - 36mm)
+        chin_px = np.array([landmarks[152].x * w, landmarks[152].y * h])
+        eye_mid_px = np.array([(landmarks[468].x + landmarks[473].x) * w / 2.0, (landmarks[468].y + landmarks[473].y) * h / 2.0])
+        chin_to_eye = np.linalg.norm(chin_px - eye_mid_px)
+        crown_px = eye_mid_px - np.array([0, chin_to_eye * 1.05])
+        cc_dist_px = np.linalg.norm(chin_px - crown_px)
+        cc_dist_mm = cc_dist_px / DPI * 25.4
+        cc_pass = (32.0 <= cc_dist_mm <= 36.0)
+        results["single_checks"].append((
+            "Chin-to-Crown Distance",
+            cc_pass,
+            f"{cc_dist_mm:.1f} mm — Official spec: 32.0 - 36.0 mm (Target: 34.0 mm)"
+        ))
+        if not cc_pass:
+            results["passed"] = False
+
+    except Exception as e:
+        results["passed"] = False
+        results["single_checks"].append(("Biometric Detection", False, str(e)))
+
+    # 4. Sheet Checks
+    if sheet_path and os.path.exists(sheet_path):
+        try:
+            with Image.open(sheet_path) as sheet_img:
+                sw, sh = sheet_img.size
+                sdpi = sheet_img.info.get("dpi")
+                sheet_dim_pass = (sw == 1200 and sh == 1800)
+                results["sheet_checks"].append((
+                    "Sheet Dimensions",
+                    sheet_dim_pass,
+                    f"{sw}x{sh} px — Target: 1200x1800 px (4x6 in @ 300 DPI)"
+                ))
+                if not sheet_dim_pass:
+                    results["passed"] = False
+
+                sheet_dpi_pass = sdpi is not None and int(round(sdpi[0])) == DPI and int(round(sdpi[1])) == DPI
+                sdpi_str = f"{sdpi[0]:.0f}x{sdpi[1]:.0f} DPI" if sdpi else "Missing DPI"
+                results["sheet_checks"].append((
+                    "Sheet Embedded DPI",
+                    sheet_dpi_pass,
+                    f"{sdpi_str} — Target: {DPI} DPI"
+                ))
+                if not sheet_dpi_pass:
+                    results["passed"] = False
+        except Exception as e:
+            results["passed"] = False
+            results["sheet_checks"].append(("Sheet Verification", False, str(e)))
+
+    return results
+
+
+def print_verification_report(results):
+    """Print structured terminal verification scorecard."""
+    print("\n" + "=" * 60)
+    print("         PASSPORT PHOTO COMPLIANCE VERIFICATION")
+    print("=" * 60)
+    print("Single Photo Verification:")
+    for name, passed, detail in results["single_checks"]:
+        sym = "[✓]" if passed else "[✗]"
+        print(f"  {sym} {name:<26}: {detail}")
+
+    if results["sheet_checks"]:
+        print("\n4x6 Print Sheet Verification:")
+        for name, passed, detail in results["sheet_checks"]:
+            sym = "[✓]" if passed else "[✗]"
+            print(f"  {sym} {name:<26}: {detail}")
+
+    status_str = "PASSED (Compliant with Official Specs)" if results["passed"] else "FAILED (Non-compliant)"
+    print("-" * 60)
+    print(f"OVERALL STATUS: {status_str}")
+    print("=" * 60 + "\n")
+
+
 def parse_args(args=None):
     parser = argparse.ArgumentParser(
         description="Australian Passport Photo Generator — Crop, scale, align, and tile passport photos."
@@ -360,11 +509,40 @@ def parse_args(args=None):
         action="store_true",
         help="Generate only the single passport photo, skipping the 4x6 sheet."
     )
+    parser.add_argument(
+        "--verify",
+        nargs="*",
+        default=None,
+        metavar="PATH",
+        help="Run compliance verification on an existing photo: --verify [single_photo.png] [sheet_4x6.png]"
+    )
+    parser.add_argument(
+        "--no-verify",
+        action="store_true",
+        help="Skip automatic post-generation compliance verification."
+    )
     return parser.parse_args(args)
 
 
 def main():
     args = parse_args()
+
+    # Standalone verification mode
+    if args.verify is not None:
+        if len(args.verify) == 0:
+            v_single = os.path.join(args.output_dir, "passport_single.png")
+            v_sheet = os.path.join(args.output_dir, "passport_sheet_4x6.png")
+        elif len(args.verify) == 1:
+            v_single = args.verify[0]
+            v_sheet = None
+        else:
+            v_single = args.verify[0]
+            v_sheet = args.verify[1]
+
+        print(f"Running compliance verification on: {v_single}")
+        report = verify_passport_photo(v_single, v_sheet)
+        print_verification_report(report)
+        sys.exit(0 if report["passed"] else 1)
 
     # Determine input path
     if args.demo:
@@ -400,6 +578,9 @@ def main():
 
     try:
         process_passport_photo(input_file, output_single, output_sheet)
+        if not args.no_verify and output_single and os.path.exists(output_single):
+            report = verify_passport_photo(output_single, output_sheet)
+            print_verification_report(report)
     except Exception as e:
         print(f"Processing Error: {e}", file=sys.stderr)
         sys.exit(1)

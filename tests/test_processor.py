@@ -98,5 +98,35 @@ class TestPassportPhotoProcessor(unittest.TestCase):
         self.assertTrue((arr != 255).any())
 
 
+    def test_parse_args_verify(self):
+        """Should parse --verify and --no-verify flags properly."""
+        args1 = ppp.parse_args(["--verify", "photo.png"])
+        self.assertEqual(args1.verify, ["photo.png"])
+        args2 = ppp.parse_args(["--no-verify"])
+        self.assertTrue(args2.no_verify)
+
+    def test_verify_passport_photo_missing(self):
+        """Should fail verification on missing file."""
+        report = ppp.verify_passport_photo("non_existent_123.png")
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["single_checks"][0][0], "File Existence")
+
+    def test_verify_passport_photo_invalid_dim(self):
+        """Should fail verification on invalid dimensions."""
+        import tempfile
+        dummy = np.full((300, 300, 3), 200, dtype=np.uint8)
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
+            path = tf.name
+        try:
+            Image.fromarray(dummy).save(path, dpi=(300, 300))
+            report = ppp.verify_passport_photo(path)
+            self.assertFalse(report["passed"])
+            dim_check = [c for c in report["single_checks"] if c[0] == "Dimensions"][0]
+            self.assertFalse(dim_check[1])
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+
+
 if __name__ == "__main__":
     unittest.main()
