@@ -10,11 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install Python dependencies
-RUN pip install --no-cache-dir \
-    opencv-python-headless==4.10.0.84 \
-    mediapipe==0.10.14 \
-    Pillow==10.4.0 \
-    numpy==2.0.0
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application script
 COPY passport_photo_processor.py /app/passport_photo_processor.py
