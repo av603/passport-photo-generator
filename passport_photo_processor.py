@@ -66,14 +66,14 @@ def validate_biometrics(image_bgr, landmarks, pad_info=None):
         )
 
     # 2. Head Yaw (Turning left / right)
-    # Nose tip: 4, Left eye: 468, Right eye: 473
+    # Nose tip: 4, Left eye: 468 (viewer's left), Right eye: 473 (viewer's right)
     nose = landmarks[4]
-    left_eye = landmarks[468]   # Viewer's right
-    right_eye = landmarks[473]  # Viewer's left
-    dist_right_to_nose = abs(nose.x - right_eye.x)
-    dist_nose_to_left = abs(left_eye.x - nose.x)
-    if dist_right_to_nose > 1e-4 and dist_nose_to_left > 1e-4:
-        ratio = dist_right_to_nose / dist_nose_to_left
+    left_eye = landmarks[468]   # Viewer's left
+    right_eye = landmarks[473]  # Viewer's right
+    dist_left_to_nose = abs(nose.x - left_eye.x)
+    dist_nose_to_right = abs(right_eye.x - nose.x)
+    if dist_left_to_nose > 1e-4 and dist_nose_to_right > 1e-4:
+        ratio = dist_left_to_nose / dist_nose_to_right
         if ratio < 0.65 or ratio > 1.55:
             warnings.append("Head appears turned or angled (yaw). Official specifications require a straight-on frontal view.")
 
@@ -105,17 +105,23 @@ def validate_biometrics(image_bgr, landmarks, pad_info=None):
 def deskew_face(image_bgr, landmarks):
     """Rotate image so the eyes lie on a horizontal plane."""
     h, w, _ = image_bgr.shape
-    left_eye = landmarks[468]   # Subject's left eye (viewer's right)
-    right_eye = landmarks[473]  # Subject's right eye (viewer's left)
+    # MediaPipe FaceMesh iris centers: 468 is viewer's left, 473 is viewer's right
+    eye_left = landmarks[468]   # Viewer's left
+    eye_right = landmarks[473]  # Viewer's right
 
-    lx, ly = left_eye.x * w, left_eye.y * h
-    rx, ry = right_eye.x * w, right_eye.y * h
+    lx, ly = eye_left.x * w, eye_left.y * h
+    rx, ry = eye_right.x * w, eye_right.y * h
 
-    dx = lx - rx
-    dy = ly - ry
+    dx = rx - lx
+    dy = ry - ly
     angle_deg = float(np.degrees(np.arctan2(dy, dx)))
 
+    # Only correct subtle head tilts; skip if already level
     if abs(angle_deg) < 0.2:
+        return image_bgr, landmarks
+
+    # Safeguard against extreme rotation or upside-down flipping
+    if abs(angle_deg) > 30.0:
         return image_bgr, landmarks
 
     eye_center = ((lx + rx) / 2.0, (ly + ry) / 2.0)
