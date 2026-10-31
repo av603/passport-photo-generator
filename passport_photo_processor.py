@@ -10,12 +10,12 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 DPI = 300
 MM_TO_INCH = 1 / 25.4
 
-# Target dimensions (temporary 37.5 x 47.5mm until Stage 3 standardizes 35x45mm)
-TARGET_WIDTH_PX = int(37.5 * MM_TO_INCH * DPI)   # ~443 pixels
-TARGET_HEIGHT_PX = int(47.5 * MM_TO_INCH * DPI)  # ~561 pixels
+# Official Australian standard dimensions (35mm width x 45mm height at 300 DPI)
+TARGET_WIDTH_PX = int(round(35 * MM_TO_INCH * DPI))   # 413 pixels
+TARGET_HEIGHT_PX = int(round(45 * MM_TO_INCH * DPI))  # 531 pixels
 
-# Target chin-to-crown distance (aiming for 34mm, center of 32-36mm range)
-TARGET_CHIN_CROWN_PX = int(34 * MM_TO_INCH * DPI) # ~402 pixels
+# Target chin-to-crown distance (34mm, center of official 32-36mm range)
+TARGET_CHIN_CROWN_PX = int(round(34 * MM_TO_INCH * DPI)) # 402 pixels
 
 
 def load_image(input_path):

@@ -51,10 +51,16 @@ class TestPassportPhotoProcessor(unittest.TestCase):
         self.assertTrue(args.no_sheet)
         self.assertEqual(args.output_dir, "custom_out")
 
+    def test_target_spec_dimensions(self):
+        """TARGET_WIDTH_PX and TARGET_HEIGHT_PX should match 35x45mm at 300 DPI."""
+        self.assertEqual(ppp.TARGET_WIDTH_PX, 413)
+        self.assertEqual(ppp.TARGET_HEIGHT_PX, 531)
+        self.assertEqual(ppp.TARGET_CHIN_CROWN_PX, 402)
+
     def test_generate_sheet_dimensions(self):
         """Sheet generator should produce 1200x1800 px sheet at 300 DPI."""
-        dummy_passport = np.full((561, 442, 3), 200, dtype=np.uint8)
-        sheet = ppp.generate_sheet(dummy_passport, dpi=300, target_w=442, target_h=561)
+        dummy_passport = np.full((ppp.TARGET_HEIGHT_PX, ppp.TARGET_WIDTH_PX, 3), 200, dtype=np.uint8)
+        sheet = ppp.generate_sheet(dummy_passport, dpi=300, target_w=ppp.TARGET_WIDTH_PX, target_h=ppp.TARGET_HEIGHT_PX)
         self.assertIsInstance(sheet, Image.Image)
         self.assertEqual(sheet.size, (1200, 1800))
 
