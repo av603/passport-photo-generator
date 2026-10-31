@@ -57,6 +57,24 @@ class TestPassportPhotoProcessor(unittest.TestCase):
         self.assertEqual(ppp.TARGET_HEIGHT_PX, 531)
         self.assertEqual(ppp.TARGET_CHIN_CROWN_PX, 402)
 
+    def test_single_photo_dpi_saved(self):
+        """Single photo output should include 300 DPI metadata."""
+        import tempfile
+        dummy_passport = np.full((ppp.TARGET_HEIGHT_PX, ppp.TARGET_WIDTH_PX, 3), 200, dtype=np.uint8)
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
+            temp_path = tf.name
+        try:
+            single_pil = Image.fromarray(dummy_passport)
+            single_pil.save(temp_path, dpi=(ppp.DPI, ppp.DPI))
+            with Image.open(temp_path) as img:
+                dpi_info = img.info.get("dpi")
+                self.assertIsNotNone(dpi_info)
+                self.assertEqual(int(round(dpi_info[0])), 300)
+                self.assertEqual(int(round(dpi_info[1])), 300)
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
     def test_generate_sheet_dimensions(self):
         """Sheet generator should produce 1200x1800 px sheet at 300 DPI."""
         dummy_passport = np.full((ppp.TARGET_HEIGHT_PX, ppp.TARGET_WIDTH_PX, 3), 200, dtype=np.uint8)

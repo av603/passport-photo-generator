@@ -222,7 +222,8 @@ def process_passport_photo(input_path, output_single_path, output_sheet_path=Non
         out_dir = os.path.dirname(output_single_path)
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
-        cv2.imwrite(output_single_path, cropped_bgr)
+        single_pil = Image.fromarray(cv2.cvtColor(cropped_bgr, cv2.COLOR_BGR2RGB))
+        single_pil.save(output_single_path, dpi=(DPI, DPI))
         print(f"Saved single passport photo to {output_single_path}")
 
     if output_sheet_path:
