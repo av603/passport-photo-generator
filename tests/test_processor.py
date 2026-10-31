@@ -23,13 +23,17 @@ class TestPassportPhotoProcessor(unittest.TestCase):
         self.assertEqual(len(image_bgr.shape), 3)
 
     def test_deskew_face_on_sample(self):
-        """Should execute deskew_face on sample image without error."""
+        """Should execute deskew_face on sample image and keep face upright."""
         sample_path = os.path.join("examples", "sample_input.jpg")
         image_bgr, image_rgb = ppp.load_image(sample_path)
         landmarks = ppp.detect_face_landmarks(image_rgb)
         deskewed_bgr, deskewed_lm = ppp.deskew_face(image_bgr, landmarks)
         self.assertEqual(deskewed_bgr.shape, image_bgr.shape)
         self.assertIsNotNone(deskewed_lm)
+        # Forehead (landmark 10) must be above chin (landmark 152) in image coordinates (y increases downward)
+        forehead_y = deskewed_lm[10].y
+        chin_y = deskewed_lm[152].y
+        self.assertLess(forehead_y, chin_y, "Face must remain upright (forehead above chin)")
 
     def test_validate_biometrics_on_sample(self):
         """Should validate sample image and return advisory list."""
