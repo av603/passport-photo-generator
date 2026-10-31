@@ -4,7 +4,7 @@ import argparse
 import cv2
 import numpy as np
 import mediapipe as mp
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 # Australian Passport Specifications at 300 DPI
 DPI = 300
@@ -19,14 +19,21 @@ TARGET_CHIN_CROWN_PX = int(34 * MM_TO_INCH * DPI) # ~402 pixels
 
 
 def load_image(input_path):
-    """Load an image from disk and return both BGR and RGB numpy arrays."""
+    """Load an image from disk, auto-orient according to EXIF tags, and return BGR and RGB arrays."""
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Could not find input image at {input_path}")
-    image_bgr = cv2.imread(input_path)
-    if image_bgr is None:
-        raise ValueError(f"Could not decode image from {input_path}")
-    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    return image_bgr, image_rgb
+    try:
+        with Image.open(input_path) as pil_img:
+            pil_img = ImageOps.exif_transpose(pil_img)
+            if pil_img.mode != "RGB":
+                pil_img = pil_img.convert("RGB")
+            image_rgb = np.array(pil_img)
+            image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+            return image_bgr, image_rgb
+    except Exception as e:
+        if isinstance(e, FileNotFoundError):
+            raise
+        raise ValueError(f"Could not decode image from {input_path}: {e}")
 
 
 def detect_face_landmarks(image_rgb):

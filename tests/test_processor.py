@@ -13,6 +13,15 @@ class TestPassportPhotoProcessor(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             ppp.load_image("non_existent_file_12345.jpg")
 
+    def test_load_image_valid(self):
+        """Should load sample image into RGB and BGR arrays matching dimensions."""
+        sample_path = os.path.join("examples", "sample_input.jpg")
+        image_bgr, image_rgb = ppp.load_image(sample_path)
+        self.assertIsInstance(image_bgr, np.ndarray)
+        self.assertIsInstance(image_rgb, np.ndarray)
+        self.assertEqual(image_bgr.shape, image_rgb.shape)
+        self.assertEqual(len(image_bgr.shape), 3)
+
     def test_parse_args_defaults(self):
         """Should parse arguments with expected defaults."""
         args = ppp.parse_args(["input.jpg"])
