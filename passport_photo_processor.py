@@ -195,17 +195,19 @@ def generate_sheet(passport_bgr, dpi=DPI, target_w=TARGET_WIDTH_PX, target_h=TAR
     draw.line([(vx1 - 5, mid_y), (vx1 + 5, mid_y)], fill=(30, 30, 30), width=2)
     draw.text((vx1 - (text_w // 2), vy1 - text_h_height - 10), text_str, fill=(30, 30, 30), font=font)
 
-    # Paste photos
+    # Paste photos with symmetrical margin centering
     passport_pil = Image.fromarray(cv2.cvtColor(passport_bgr, cv2.COLOR_BGR2RGB))
     cols = 2
     rows = 3
-    margin_x = (sheet_w - (cols * target_w)) // (cols + 1)
-    margin_y = (sheet_h - (rows * target_h)) // (rows + 1)
+    gap_x = (sheet_w - cols * target_w) // (cols + 1)
+    gap_y = (sheet_h - rows * target_h) // (rows + 1)
+    start_x = (sheet_w - (cols * target_w + (cols - 1) * gap_x)) // 2
+    start_y = (sheet_h - (rows * target_h + (rows - 1) * gap_y)) // 2
 
     for r in range(rows):
         for c in range(cols):
-            x = margin_x + c * (target_w + margin_x)
-            y = margin_y + r * (target_h + margin_y)
+            x = start_x + c * (target_w + gap_x)
+            y = start_y + r * (target_h + gap_y)
             sheet.paste(passport_pil, (x, y))
 
     return sheet
