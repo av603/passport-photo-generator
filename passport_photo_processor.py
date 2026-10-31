@@ -160,11 +160,29 @@ def generate_sheet(passport_bgr, dpi=DPI, target_w=TARGET_WIDTH_PX, target_h=TAR
     start_x = (sheet_w - (cols * target_w + (cols - 1) * gap_x)) // 2
     start_y = (sheet_h - (rows * target_h + (rows - 1) * gap_y)) // 2
 
+    def draw_corner_ticks(draw_ctx, x, y, w, h, tick_len=14, color=(180, 180, 180)):
+        """Draw subtle 'L' corner crop marks extending outward into the margins."""
+        x2 = x + w
+        y2 = y + h
+        # Top-Left corner
+        draw_ctx.line([(x - tick_len, y), (x, y)], fill=color, width=1)
+        draw_ctx.line([(x, y - tick_len), (x, y)], fill=color, width=1)
+        # Top-Right corner
+        draw_ctx.line([(x2, y), (x2 + tick_len, y)], fill=color, width=1)
+        draw_ctx.line([(x2, y - tick_len), (x2, y)], fill=color, width=1)
+        # Bottom-Left corner
+        draw_ctx.line([(x - tick_len, y2), (x, y2)], fill=color, width=1)
+        draw_ctx.line([(x, y2), (x, y2 + tick_len)], fill=color, width=1)
+        # Bottom-Right corner
+        draw_ctx.line([(x2, y2), (x2 + tick_len, y2)], fill=color, width=1)
+        draw_ctx.line([(x2, y2), (x2, y2 + tick_len)], fill=color, width=1)
+
     for r in range(rows):
         for c in range(cols):
             x = start_x + c * (target_w + gap_x)
             y = start_y + r * (target_h + gap_y)
             sheet.paste(passport_pil, (x, y))
+            draw_corner_ticks(draw, x, y, target_w, target_h)
 
     # --- DRAW CALIBRATION SCALE BARS IN UNOBSTRUCTED MARGINS ---
     bar_len_px = int(50 * MM_TO_INCH * dpi) # ~591 px for 50mm

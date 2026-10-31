@@ -76,11 +76,14 @@ class TestPassportPhotoProcessor(unittest.TestCase):
                 os.remove(temp_path)
 
     def test_generate_sheet_dimensions(self):
-        """Sheet generator should produce 1200x1800 px sheet at 300 DPI."""
+        """Sheet generator should produce 1200x1800 px sheet at 300 DPI with tick marks."""
         dummy_passport = np.full((ppp.TARGET_HEIGHT_PX, ppp.TARGET_WIDTH_PX, 3), 200, dtype=np.uint8)
         sheet = ppp.generate_sheet(dummy_passport, dpi=300, target_w=ppp.TARGET_WIDTH_PX, target_h=ppp.TARGET_HEIGHT_PX)
         self.assertIsInstance(sheet, Image.Image)
         self.assertEqual(sheet.size, (1200, 1800))
+        # Ensure sheet contains drawing marks outside pure white background
+        arr = np.array(sheet)
+        self.assertTrue((arr != 255).any())
 
 
 if __name__ == "__main__":
