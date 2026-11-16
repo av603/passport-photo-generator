@@ -17,6 +17,66 @@ TARGET_HEIGHT_PX = int(round(45 * MM_TO_INCH * DPI))  # 531 pixels
 # Target chin-to-crown distance (34mm, center of official 32-36mm range)
 TARGET_CHIN_CROWN_PX = int(round(34 * MM_TO_INCH * DPI))  # 402 pixels
 
+# ---------------------------------------------------------------------------
+# Exposure constants (ICAO Doc 9303 / ISO 19794-5 / OFIQ / APO guidelines)
+# ---------------------------------------------------------------------------
+
+# MediaPipe FaceMesh oval contour landmark indices (36-point silhouette).
+# Used to build a face-only mask for exposure analysis so the background,
+# hair, and clothing do not bias measurements.
+FACE_OVAL_IDX = [
+    10,
+    338,
+    297,
+    332,
+    284,
+    251,
+    389,
+    356,
+    454,
+    323,
+    361,
+    288,
+    397,
+    365,
+    379,
+    378,
+    400,
+    377,
+    152,
+    148,
+    176,
+    149,
+    150,
+    136,
+    172,
+    58,
+    132,
+    93,
+    234,
+    127,
+    162,
+    21,
+    54,
+    103,
+    67,
+    109,
+]
+
+# Face mean luminance thresholds (8-bit grayscale, 0–255)
+EXPOSURE_LUMA_TARGET = 125  # Optimal centre point
+EXPOSURE_LUMA_MIN = 105  # Below → too dark for APO/ICAO
+EXPOSURE_LUMA_MAX = 165  # Above → too bright / washed out
+
+# OFIQ-aligned pixel-fraction thresholds
+EXPOSURE_UNDEREXPOSED_FRAC = 0.015  # > 1.5 % of face pixels below 30 → underexposed
+EXPOSURE_SHADOW_FRAC = 0.08  # > 8 % of face pixels below 60  → excessive shadow
+EXPOSURE_OVEREXPOSED_FRAC = 0.015  # > 1.5 % of face pixels above 245 → blown out
+
+# Adaptive-gamma safety envelope (prevents noise amplification / over-darkening)
+EXPOSURE_GAMMA_MIN = 0.55
+EXPOSURE_GAMMA_MAX = 1.40
+
 
 def load_image(input_path):
     """Load an image from disk, auto-orient according to EXIF tags, and return BGR and RGB arrays."""
@@ -39,6 +99,165 @@ def load_image(input_path):
         if isinstance(e, FileNotFoundError):
             raise
         raise ValueError(f"Could not decode image from {input_path}: {e}")
+
+
+def _build_face_mask(image_bgr, landmarks):
+    """Return a single-channel uint8 mask (255 inside face oval, 0 outside)."""
+    h, w = image_bgr.shape[:2]
+    pts = np.array(
+        [
+            [int(landmarks[idx].x * w), int(landmarks[idx].y * h)]
+            for idx in FACE_OVAL_IDX
+        ],
+        dtype=np.int32,
+    )
+    mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.fillPoly(mask, [pts], 255)
+    return mask
+
+
+def analyze_exposure(image_bgr, landmarks):
+    """
+    Measure face-region exposure against ICAO/APO/OFIQ thresholds.
+
+    Operates exclusively on pixels inside the MediaPipe face-oval silhouette so
+    that background, hair, and clothing cannot bias the measurement.
+
+    Returns a dict with keys:
+        mean_luminance   – float, mean 8-bit grayscale of face pixels
+        underexposed_frac– float, fraction of face pixels with Y < 30
+        shadow_frac      – float, fraction of face pixels with Y < 60
+        overexposed_frac – float, fraction of face pixels with Y > 245
+        luma_iqr         – float, interquartile range of face luminance
+        status           – str: "compliant", "underexposed", "overexposed",
+                                "shadow", or "flat"
+        advisories       – list[str] of human-readable advisory strings
+    """
+    mask = _build_face_mask(image_bgr, landmarks)
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    face_pixels = gray[mask > 0].astype(np.float32)
+
+    if face_pixels.size == 0:
+        return {
+            "mean_luminance": 0.0,
+            "underexposed_frac": 1.0,
+            "shadow_frac": 1.0,
+            "overexposed_frac": 0.0,
+            "luma_iqr": 0.0,
+            "status": "underexposed",
+            "advisories": ["Could not sample face pixels for exposure analysis."],
+        }
+
+    mean_luma = float(np.mean(face_pixels))
+    underexposed_frac = float(np.mean(face_pixels < 30))
+    shadow_frac = float(np.mean(face_pixels < 60))
+    overexposed_frac = float(np.mean(face_pixels > 245))
+    luma_iqr = float(np.percentile(face_pixels, 75) - np.percentile(face_pixels, 25))
+
+    advisories = []
+    status = "compliant"
+
+    if mean_luma < EXPOSURE_LUMA_MIN or underexposed_frac > EXPOSURE_UNDEREXPOSED_FRAC:
+        status = "underexposed"
+        advisories.append(
+            f"Photo is too dark (face mean luminance: {mean_luma:.0f}, target: "
+            f"{EXPOSURE_LUMA_MIN}–{EXPOSURE_LUMA_MAX}). Ensure even, bright "
+            "front-facing lighting with no shadows on the face."
+        )
+    elif mean_luma > EXPOSURE_LUMA_MAX or overexposed_frac > EXPOSURE_OVEREXPOSED_FRAC:
+        status = "overexposed"
+        advisories.append(
+            f"Photo is too bright / washed out (face mean luminance: {mean_luma:.0f}, "
+            f"target: {EXPOSURE_LUMA_MIN}–{EXPOSURE_LUMA_MAX}). Reduce direct flash "
+            "or lighting intensity."
+        )
+
+    if shadow_frac > EXPOSURE_SHADOW_FRAC and status == "compliant":
+        status = "shadow"
+        advisories.append(
+            f"Excessive facial shadows detected ({shadow_frac * 100:.1f}% of face "
+            "pixels in dark range). Use diffuse, uniform front lighting and stand "
+            "at least 1 m from the background."
+        )
+
+    if luma_iqr < 25:
+        advisories.append(
+            f"Very low contrast across face (IQR: {luma_iqr:.0f}). Lighting may "
+            "be too flat or the image may be heavily compressed."
+        )
+        if status == "compliant":
+            status = "flat"
+
+    return {
+        "mean_luminance": mean_luma,
+        "underexposed_frac": underexposed_frac,
+        "shadow_frac": shadow_frac,
+        "overexposed_frac": overexposed_frac,
+        "luma_iqr": luma_iqr,
+        "status": status,
+        "advisories": advisories,
+    }
+
+
+def correct_exposure(
+    image_bgr,
+    landmarks,
+    target_luma=EXPOSURE_LUMA_TARGET,
+    gamma_min=EXPOSURE_GAMMA_MIN,
+    gamma_max=EXPOSURE_GAMMA_MAX,
+):
+    """
+    Correct image exposure using adaptive gamma in the CIELAB L* channel,
+    blended with a conservative CLAHE pass for localised shadow relief.
+
+    Operating in LAB space means only luminance is altered — skin tone
+    chromaticity (the A* and B* channels) is preserved exactly, so no
+    colour cast is introduced.
+
+    Args:
+        image_bgr:   Input image (BGR uint8).
+        landmarks:   MediaPipe face landmarks for the same image.
+        target_luma: Target mean face luminance (default 125).
+        gamma_min:   Minimum gamma (clamp, prevents noise amplification).
+        gamma_max:   Maximum gamma (clamp, prevents over-darkening).
+
+    Returns:
+        Corrected BGR uint8 image.
+    """
+    mask = _build_face_mask(image_bgr, landmarks)
+    lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB)
+    L, A, B = cv2.split(lab)
+
+    face_L = L[mask > 0].astype(np.float32)
+    if face_L.size == 0:
+        return image_bgr
+
+    mean_face_L = float(np.mean(face_L))
+
+    # If already in target range, return unchanged
+    if EXPOSURE_LUMA_MIN <= mean_face_L <= EXPOSURE_LUMA_MAX:
+        return image_bgr
+
+    # Gamma correction: γ = ln(T/255) / ln(μ/255)
+    # Anchors at 0 and 255 so background stays white and pure black stays black.
+    eps = 1e-6
+    gamma = np.log(target_luma / 255.0 + eps) / np.log(
+        max(mean_face_L, 1.0) / 255.0 + eps
+    )
+    gamma = float(np.clip(gamma, gamma_min, gamma_max))
+
+    lut = np.array([((i / 255.0) ** gamma) * 255 for i in range(256)], dtype=np.uint8)
+    L_gamma = cv2.LUT(L, lut)
+
+    # Conservative CLAHE for localised shadow relief
+    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
+    L_clahe = clahe.apply(L_gamma)
+
+    # Blend: 75% global-gamma + 25% local-CLAHE
+    L_final = cv2.addWeighted(L_gamma, 0.75, L_clahe, 0.25, 0)
+
+    corrected_lab = cv2.merge([L_final, A, B])
+    return cv2.cvtColor(corrected_lab, cv2.COLOR_LAB2BGR)
 
 
 def detect_face_landmarks(image_rgb):
@@ -333,15 +552,43 @@ def generate_sheet(
     return sheet
 
 
-def process_passport_photo(input_path, output_single_path, output_sheet_path=None):
-    """Main processing function to load, crop, and save passport photo and optional sheet."""
+def process_passport_photo(
+    input_path, output_single_path, output_sheet_path=None, auto_exposure=True
+):
+    """Main processing function to load, crop, and save passport photo and optional sheet.
+
+    Args:
+        input_path:          Path to source image.
+        output_single_path:  Destination for 35x45 mm single photo.
+        output_sheet_path:   Optional destination for 4x6 print sheet.
+        auto_exposure:       When True (default), automatically correct exposure
+                             if the face luminance falls outside the compliant
+                             range before alignment and cropping.
+    """
     image_bgr, image_rgb = load_image(input_path)
     landmarks = detect_face_landmarks(image_rgb)
+
+    # --- Exposure correction (applied before deskew/crop to maximise quality) ---
+    exposure_info = analyze_exposure(image_bgr, landmarks)
+    if auto_exposure and exposure_info["status"] not in ("compliant", "flat"):
+        print(
+            f"[Exposure] Auto-correcting: face mean luminance "
+            f"{exposure_info['mean_luminance']:.0f} → target {EXPOSURE_LUMA_TARGET}"
+        )
+        image_bgr = correct_exposure(image_bgr, landmarks)
+        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        # Re-detect landmarks on the corrected image for accurate downstream steps
+        landmarks = detect_face_landmarks(image_rgb)
+
     deskewed_bgr, deskewed_landmarks = deskew_face(image_bgr, landmarks)
     cropped_bgr, pad_info = align_and_crop(deskewed_bgr, deskewed_landmarks)
 
     # Validate biometrics and issue advisories
-    advisories = validate_biometrics(image_bgr, deskewed_landmarks, pad_info)
+    all_advisories = []
+    if not auto_exposure:
+        all_advisories.extend(exposure_info["advisories"])
+    all_advisories.extend(validate_biometrics(image_bgr, deskewed_landmarks, pad_info))
+    advisories = all_advisories
     if advisories:
         print("\n--- Biometric Compliance Advisory ---")
         for adv in advisories:
@@ -476,6 +723,21 @@ def verify_passport_photo(single_path, sheet_path=None):
         if not cc_pass:
             results["passed"] = False
 
+        # 3c. Exposure Check (ICAO/APO face luminance compliance)
+        exp_info = analyze_exposure(bgr, landmarks)
+        exp_pass = exp_info["status"] in ("compliant", "flat")
+        mean_luma = exp_info["mean_luminance"]
+        exp_detail = (
+            f"Face mean luminance: {mean_luma:.0f} — "
+            f"Target: {EXPOSURE_LUMA_MIN}–{EXPOSURE_LUMA_MAX} "
+            f"({'Compliant' if exp_pass else exp_info['status'].capitalize()})"
+        )
+        results["single_checks"].append(
+            ("Exposure (Face Luminance)", exp_pass, exp_detail)
+        )
+        if not exp_pass:
+            results["passed"] = False
+
     except Exception as e:
         results["passed"] = False
         results["single_checks"].append(("Biometric Detection", False, str(e)))
@@ -592,6 +854,22 @@ def parse_args(args=None):
         action="store_true",
         help="Skip automatic post-generation compliance verification.",
     )
+    parser.add_argument(
+        "--auto-exposure",
+        dest="auto_exposure",
+        action="store_true",
+        default=True,
+        help=(
+            "Automatically correct exposure when the face luminance falls outside "
+            "the compliant range (default: on)."
+        ),
+    )
+    parser.add_argument(
+        "--no-auto-exposure",
+        dest="auto_exposure",
+        action="store_false",
+        help="Disable automatic exposure correction.",
+    )
     return parser.parse_args(args)
 
 
@@ -650,7 +928,9 @@ def main():
         output_sheet = os.path.join(args.output_dir, "passport_sheet_4x6.png")
 
     try:
-        process_passport_photo(input_file, output_single, output_sheet)
+        process_passport_photo(
+            input_file, output_single, output_sheet, auto_exposure=args.auto_exposure
+        )
         if not args.no_verify and output_single and os.path.exists(output_single):
             report = verify_passport_photo(output_single, output_sheet)
             print_verification_report(report)
