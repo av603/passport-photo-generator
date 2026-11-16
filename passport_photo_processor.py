@@ -856,20 +856,11 @@ def parse_args(args=None):
         help="Skip automatic post-generation compliance verification.",
     )
     parser.add_argument(
-        "--auto-exposure",
-        dest="auto_exposure",
-        action="store_true",
-        default=True,
-        help=(
-            "Automatically correct exposure when the face luminance falls outside "
-            "the compliant range (default: on)."
-        ),
-    )
-    parser.add_argument(
         "--no-auto-exposure",
         dest="auto_exposure",
         action="store_false",
-        help="Disable automatic exposure correction.",
+        default=True,
+        help="Disable automatic exposure correction (enabled by default).",
     )
     return parser.parse_args(args)
 

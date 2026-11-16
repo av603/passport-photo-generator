@@ -364,7 +364,7 @@ class TestExposure(unittest.TestCase):
     # --- CLI flag ---
 
     def test_parse_args_auto_exposure_defaults_true(self):
-        """--auto-exposure must default to True."""
+        """auto_exposure must default to True when no flag is passed."""
         args = ppp.parse_args(["input.jpg"])
         self.assertTrue(args.auto_exposure)
 

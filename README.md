@@ -17,6 +17,8 @@ An automated tool built in Python to align, scale, crop, and tile photos accordi
   - **Corner Tick Marks:** Subtle `L` cutting guides extending outward from each photo boundary for scissor or rotary trimmer alignment.
   - **Calibration Scale Bars:** 50mm horizontal and vertical scale bars drawn in clear sheet margins to verify physical printer scaling with a ruler.
 - **Biometric Compliance Advisories:** Pre-flight checks analyzing head yaw, open eyes (EAR), neutral expression (mouth closed), minimum resolution, and camera framing padding.
+- **Auto-Exposure & Lighting Correction:** Measures facial skin luminance against ICAO Doc 9303 / DFAT requirements and automatically lifts underexposed shadows in CIELAB space without shifting natural skin tones or blowing out white backgrounds.
+- **Biometric Compliance Verification:** Built-in post-generation scorecard validating dimensions, 300 DPI metadata, upright orientation, eye level alignment, chin-to-crown distance (32–36mm), and facial skin exposure compliance.
 - **Non-Root Docker Environment:** Pre-packaged dependencies running with non-root user permissions (`appuser` UID 1000) so generated files match host user ownership.
 
 ---
@@ -28,6 +30,7 @@ An automated tool built in Python to align, scale, crop, and tile photos accordi
 - **Height:** 45mm to 50mm (standardized to **45mm** / $531$ px @ 300 DPI)
 - **Chin-to-Crown Distance:** 32mm to 36mm (target set to **34mm** / $402$ px)
 - **Background:** Uniform light gray or white background recommended.
+- **Lighting & Exposure:** Uniform lighting with appropriate brightness and contrast; no shadows on the face or background; natural skin tones.
 
 ---
 
@@ -106,6 +109,8 @@ passport-photo ~/Downloads/my_photo.jpg
 
 ```text
 usage: passport_photo_processor.py [-h] [--demo] [-o OUTPUT_DIR] [--no-sheet]
+                                   [--verify [PATH ...]] [--no-verify]
+                                   [--no-auto-exposure]
                                    [input] [output_single] [output_sheet]
 
 positional arguments:
@@ -118,6 +123,9 @@ options:
   --demo                Run immediately using bundled sample photo.
   -o, --output-dir      Target directory for outputs (default: output).
   --no-sheet            Generate only the single passport photo, skipping the sheet.
+  --verify [PATH ...]   Run compliance verification on an existing photo.
+  --no-verify           Skip automatic post-generation compliance verification.
+  --no-auto-exposure    Disable automatic exposure correction (enabled by default).
 ```
 
 ---
