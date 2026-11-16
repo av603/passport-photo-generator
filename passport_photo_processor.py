@@ -123,8 +123,12 @@ def analyze_exposure(image_bgr, landmarks):
     Operates exclusively on pixels inside the MediaPipe face-oval silhouette so
     that background, hair, and clothing cannot bias the measurement.
 
+    Luminance is sampled using standard ITU-R BT.601 / Rec.709 grayscale luma
+    (0.299R + 0.587G + 0.114B), the universal standard for biometric quality
+    assessment (OFIQ, NIST, ICAO).
+
     Returns a dict with keys:
-        mean_luminance   – float, mean 8-bit grayscale of face pixels
+        mean_luminance   – float, mean 8-bit grayscale luma of face pixels
         underexposed_frac– float, fraction of face pixels with Y < 30
         shadow_frac      – float, fraction of face pixels with Y < 60
         overexposed_frac – float, fraction of face pixels with Y > 245
@@ -224,27 +228,24 @@ def correct_exposure(
     Returns:
         Corrected BGR uint8 image.
     """
-    mask = _build_face_mask(image_bgr, landmarks)
-    lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB)
-    L, A, B = cv2.split(lab)
-
-    face_L = L[mask > 0].astype(np.float32)
-    if face_L.size == 0:
+    exp_info = analyze_exposure(image_bgr, landmarks)
+    if exp_info["status"] == "compliant":
         return image_bgr
 
-    mean_face_L = float(np.mean(face_L))
-
-    # If already in target range, return unchanged
-    if EXPOSURE_LUMA_MIN <= mean_face_L <= EXPOSURE_LUMA_MAX:
+    mean_luma = exp_info["mean_luminance"]
+    if mean_luma <= 0:
         return image_bgr
 
     # Gamma correction: γ = ln(T/255) / ln(μ/255)
     # Anchors at 0 and 255 so background stays white and pure black stays black.
     eps = 1e-6
     gamma = np.log(target_luma / 255.0 + eps) / np.log(
-        max(mean_face_L, 1.0) / 255.0 + eps
+        max(mean_luma, 1.0) / 255.0 + eps
     )
     gamma = float(np.clip(gamma, gamma_min, gamma_max))
+
+    lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB)
+    L, A, B = cv2.split(lab)
 
     lut = np.array([((i / 255.0) ** gamma) * 255 for i in range(256)], dtype=np.uint8)
     L_gamma = cv2.LUT(L, lut)
@@ -570,7 +571,7 @@ def process_passport_photo(
 
     # --- Exposure correction (applied before deskew/crop to maximise quality) ---
     exposure_info = analyze_exposure(image_bgr, landmarks)
-    if auto_exposure and exposure_info["status"] not in ("compliant", "flat"):
+    if auto_exposure and exposure_info["status"] != "compliant":
         print(
             f"[Exposure] Auto-correcting: face mean luminance "
             f"{exposure_info['mean_luminance']:.0f} → target {EXPOSURE_LUMA_TARGET}"

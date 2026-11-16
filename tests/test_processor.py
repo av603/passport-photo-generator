@@ -342,6 +342,25 @@ class TestExposure(unittest.TestCase):
             if os.path.exists(path):
                 os.remove(path)
 
+    def test_correct_exposure_on_becs_sample_if_present(self):
+        """If BECS.jpg exists, auto-exposure must detect underexposure and bring luminance to compliant range."""
+        import cv2
+
+        becs_path = "BECS.jpg"
+        if not os.path.exists(becs_path):
+            self.skipTest("BECS.jpg not present in working tree")
+        img_bgr, img_rgb = ppp.load_image(becs_path)
+        landmarks = ppp.detect_face_landmarks(img_rgb)
+        pre_exp = ppp.analyze_exposure(img_bgr, landmarks)
+        self.assertEqual(pre_exp["status"], "underexposed")
+        corrected_bgr = ppp.correct_exposure(img_bgr, landmarks)
+        corr_rgb = cv2.cvtColor(corrected_bgr, cv2.COLOR_BGR2RGB)
+        corr_lm = ppp.detect_face_landmarks(corr_rgb)
+        post_exp = ppp.analyze_exposure(corrected_bgr, corr_lm)
+        self.assertEqual(post_exp["status"], "compliant")
+        self.assertGreaterEqual(post_exp["mean_luminance"], ppp.EXPOSURE_LUMA_MIN)
+        self.assertLessEqual(post_exp["mean_luminance"], ppp.EXPOSURE_LUMA_MAX)
+
     # --- CLI flag ---
 
     def test_parse_args_auto_exposure_defaults_true(self):
